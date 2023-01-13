@@ -3,7 +3,7 @@ use tokio::{
     net::TcpListener,
 };
 
-pub async fn start(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     loop {
         let (mut socket, _) = listener.accept().await?;
