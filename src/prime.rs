@@ -1,5 +1,11 @@
+use std::error::Error;
+use std::str::FromStr;
+
 use futures::prelude::*;
+use num_bigint::{BigInt, ParseBigIntError};
+use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::net::ToSocketAddrs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LinesCodec};
@@ -7,7 +13,7 @@ use tokio_util::codec::{Framed, LinesCodec};
 #[derive(Deserialize)]
 struct Request {
     method: String,
-    number: f64,
+    number: String, // handle parsing manually due to arbitrary precision
 }
 
 #[derive(Serialize)]
@@ -43,15 +49,34 @@ async fn handle_request(
     s: &str,
     sink: &mut stream::SplitSink<Framed<TcpStream, LinesCodec>, String>,
 ) -> bool {
+    let data = r#"
+        {
+            "name": "John Doe",
+            "age": 43,
+            "phones": [
+                "+44 1234567",
+                "+44 2345678"
+            ]
+        }"#;
+
+    // Parse the string of data into serde_json::Value.
+    let v: Value = serde_json::from_str(data)?;
+    let a = v["name"];
     let (response, disconnect) = match serde_json::from_str::<Request>(s) {
         Ok(req) => {
             if is_valid_request(&req) {
-                (build_response(req), false)
+                match build_response(&req) {
+                    Ok(res) => (res, false),
+                    Err(_) => (String::from("invalid request\n"), true),
+                }
             } else {
                 (String::from("invalid request\n"), true)
             }
         }
-        Err(_) => (String::from("malformed request\n"), true),
+        Err(e) => {
+            eprintln!("{}", e);
+            (String::from("malformed request\n"), true)
+        }
     };
 
     sink.send(response)
@@ -65,30 +90,33 @@ fn is_valid_request(req: &Request) -> bool {
     req.method == "isPrime"
 }
 
-fn build_response(req: Request) -> String {
+fn build_response(req: &Request) -> Result<String, Box<dyn Error>> {
+    let prime = is_prime(&req.number)?;
     let res = Response {
         method: String::from("isPrime"),
-        prime: is_prime(req.number),
+        prime,
     };
-    serde_json::to_string(&res).expect("Failed to serialize response")
+
+    Ok(serde_json::to_string(&res).expect("Failed to serialize response"))
 }
 
-fn is_prime(n: f64) -> bool {
-    if n.fract() >= 1e-10 {
-        return false;
+fn is_prime(num: &str) -> Result<bool, ParseBigIntError> {
+    // Handle negative numbers (in scientific notation) and decimals
+    if num.contains('-') || num.contains('.') {
+        return Ok(false);
     }
 
-    let n_int = n.trunc() as i128;
+    let num = BigInt::from_str(num)?;
 
-    if n <= 1. {
-        return false;
+    if num <= BigInt::one() {
+        return Ok(false);
     }
 
-    for i in 2..(n.sqrt().trunc() as i128 + 1) {
-        if n_int % i == 0 {
-            return false;
+    for i in num_iter::range_inclusive(BigInt::from(2), num.sqrt() + BigInt::one()) {
+        if (&num % i) == BigInt::zero() {
+            return Ok(false);
         }
     }
 
-    true
+    Ok(true)
 }
