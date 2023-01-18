@@ -1,10 +1,10 @@
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, ToSocketAddrs},
 };
 
-pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+pub async fn start_server(address: impl ToSocketAddrs) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind(address).await?;
     loop {
         let (mut socket, _) = listener.accept().await?;
 
