@@ -4,7 +4,7 @@ use tokio::net::ToSocketAddrs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LinesCodec};
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Request {
     method: String,
     number: f64,
