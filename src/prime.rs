@@ -78,14 +78,13 @@ fn is_prime(n: f64) -> bool {
         return false;
     }
 
-    // let n = n.trunc() as i64;
-    let n_int = n.trunc() as i64;
+    let n_int = n.trunc() as i128;
 
     if n <= 1. {
         return false;
     }
 
-    for i in 2..(n.sqrt().trunc() as i64 + 1) {
+    for i in 2..(n.sqrt().trunc() as i128 + 1) {
         if n_int % i == 0 {
             return false;
         }
