@@ -1,13 +1,18 @@
+use std::str::FromStr;
+
 use futures::prelude::*;
+use num_bigint::BigInt;
+use num_traits::{FromPrimitive, One, Zero};
 use serde::{Deserialize, Serialize};
+use serde_json::Number;
 use tokio::net::ToSocketAddrs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LinesCodec};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Request {
     method: String,
-    number: f64,
+    number: Number,
 }
 
 #[derive(Serialize)]
@@ -68,24 +73,35 @@ fn is_valid_request(req: &Request) -> bool {
 fn build_response(req: Request) -> String {
     let res = Response {
         method: String::from("isPrime"),
-        prime: is_prime(req.number),
+        prime: is_number_prime(&req.number),
     };
+
     serde_json::to_string(&res).expect("Failed to serialize response")
 }
 
-fn is_prime(n: f64) -> bool {
-    if n.fract() >= 1e-10 {
+fn is_number_prime(n: &Number) -> bool {
+    if n.is_f64() {
+        return n
+            .as_f64()
+            .filter(|x| x.fract() < 1e-10)
+            .map(|x| BigInt::from_f64(x))
+            .flatten()
+            .map(|x| is_int_prime(&x))
+            .unwrap_or(false);
+    }
+
+    return BigInt::from_str(&n.to_string())
+        .map(|x| is_int_prime(&x))
+        .unwrap_or(false);
+}
+
+fn is_int_prime(n: &BigInt) -> bool {
+    if *n <= BigInt::one() {
         return false;
     }
 
-    let n_int = n.trunc() as i128;
-
-    if n <= 1. {
-        return false;
-    }
-
-    for i in 2..(n.sqrt().trunc() as i128 + 1) {
-        if n_int % i == 0 {
+    for i in num_iter::range_inclusive(BigInt::from(2), n.sqrt() + BigInt::one()) {
+        if Zero::is_zero(&(n % i)) {
             return false;
         }
     }

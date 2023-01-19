@@ -7,7 +7,10 @@ mod smoke;
 
 #[tokio::main]
 async fn main() {
-    let host = env::args().skip(1).next().unwrap();
+    let host = env::args()
+        .skip(1)
+        .next()
+        .unwrap_or(String::from("127.0.0.1"));
     let mut join_set = JoinSet::new();
 
     join_set.spawn({
