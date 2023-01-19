@@ -98,6 +98,8 @@ fn is_number_prime(n: &Number) -> bool {
 fn is_int_prime(n: &BigInt) -> bool {
     if *n <= BigInt::one() {
         return false;
+    } else if *n == BigInt::from(2) {
+        return true;
     }
 
     for i in num_iter::range_inclusive(BigInt::from(2), n.sqrt() + BigInt::one()) {
