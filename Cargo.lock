@@ -278,6 +278,7 @@ dependencies = [
 name = "protohackers"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "futures",
  "num-bigint",
  "num-iter",
