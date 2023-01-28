@@ -136,7 +136,13 @@ async fn handle_socket(c: &mut Connection) {
                         acc + x
                     });
 
-                if let Err(_) = sink.write_i32(sum / len).await {
+                let mean = if len == 0 {
+                    0
+                } else {
+                    sum / len
+                };
+
+                if let Err(_) = sink.write_i32(mean).await {
                     eprintln!("Failed to write response");
                 }
             }
