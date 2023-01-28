@@ -126,26 +126,33 @@ async fn handle_socket(c: &mut Connection) {
                 c.data.insert(insert.timestamp, insert.price);
             }
             Request::Query(query) => {
-                let mut len = 0;
-                let sum = c
-                    .data
-                    .range((Included(&query.mintime), Included(&query.maxtime)))
-                    .map(|(_, v)| v)
-                    .fold(0, |acc, x| {
-                        len += 1;
-                        acc + x
-                    });
-
-                let mean = if len == 0 {
-                    0
-                } else {
-                    sum / len
-                };
+                let mean = get_mean(&c.data, query);
 
                 if let Err(_) = sink.write_i32(mean).await {
                     eprintln!("Failed to write response");
                 }
             }
         }
+    }
+}
+
+fn get_mean(data: &BTreeMap<i32, i32>, query: &QueryRequest) -> i32 {
+    if query.mintime > query.maxtime {
+        return 0;
+    }
+
+    let mut len = 0;
+    let sum = data
+        .range((Included(&query.mintime), Included(&query.maxtime)))
+        .map(|(_, v)| v)
+        .fold(0, |acc, x| {
+            len += 1;
+            acc + x
+        });
+
+    if len == 0 {
+        0
+    } else {
+        sum / len
     }
 }
