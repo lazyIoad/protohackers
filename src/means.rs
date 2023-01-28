@@ -142,17 +142,17 @@ fn get_mean(data: &BTreeMap<i32, i32>, query: &QueryRequest) -> i32 {
     }
 
     let mut len = 0;
-    let sum = data
+    let sum: i64 = data
         .range((Included(&query.mintime), Included(&query.maxtime)))
         .map(|(_, v)| v)
         .fold(0, |acc, x| {
             len += 1;
-            acc + x
+            acc + (*x as i64)
         });
 
     if len == 0 {
         0
     } else {
-        sum / len
+        (sum / len) as i32 
     }
 }
