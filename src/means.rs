@@ -153,6 +153,6 @@ fn get_mean(data: &BTreeMap<i32, i32>, query: &QueryRequest) -> i32 {
     if len == 0 {
         0
     } else {
-        (sum / len) as i32 
+        (sum / len) as i32
     }
 }
