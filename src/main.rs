@@ -4,7 +4,7 @@ use tokio::task::JoinSet;
 
 mod means;
 mod prime;
-mod smoke;
+mod echo;
 
 #[tokio::main]
 async fn main() {
@@ -16,7 +16,7 @@ async fn main() {
 
     join_set.spawn({
         let host = host.clone();
-        async move { smoke::start_server(build_addr(host, 8000)).await.unwrap() }
+        async move { echo::start_server(build_addr(host, 8000)).await.unwrap() }
     });
 
     join_set.spawn({
