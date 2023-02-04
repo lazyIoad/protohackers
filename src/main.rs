@@ -5,6 +5,7 @@ use tokio::task::JoinSet;
 mod means;
 mod prime;
 mod smoke;
+mod chat;
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +28,11 @@ async fn main() {
     join_set.spawn({
         let host = host.clone();
         async move { means::start_server(build_addr(host, 8002)).await.unwrap() }
+    });
+
+    join_set.spawn({
+        let host = host.clone();
+        async move { chat::start_server(build_addr(host, 8003)).await.unwrap() }
     });
 
     while let Some(_) = join_set.join_next().await {}
