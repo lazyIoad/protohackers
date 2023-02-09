@@ -2,10 +2,10 @@ use std::env;
 
 use tokio::task::JoinSet;
 
+mod chat;
 mod means;
 mod prime;
 mod smoke;
-mod chat;
 
 #[tokio::main]
 async fn main() {
