@@ -6,6 +6,7 @@ use std::{
 
 use futures::prelude::*;
 use futures::StreamExt;
+use itertools::Itertools;
 use tokio::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
     sync::broadcast::{self, Receiver, Sender},
@@ -20,7 +21,7 @@ type ServerData = Arc<Mutex<HashSet<String>>>;
 enum Message {
     Join(String),
     Leave(String),
-    Message { name: String, body: String },
+    Text { name: String, body: String },
 }
 
 #[derive(Debug)]
@@ -47,7 +48,11 @@ pub async fn start_server(address: impl ToSocketAddrs) -> Result<(), Box<dyn Err
     }
 }
 
-async fn handle_client(socket: TcpStream, chat_tx: Sender<Message>, server_data: ServerData) {
+async fn handle_client(
+    socket: TcpStream,
+    chat_tx: Sender<Message>,
+    server_data: ServerData,
+) -> Result<(), Box<dyn Error>> {
     let receiver = chat_tx.subscribe();
 
     let mut client_state = Client {
@@ -58,22 +63,10 @@ async fn handle_client(socket: TcpStream, chat_tx: Sender<Message>, server_data:
 
     let framed_socket = Framed::new(socket, LinesCodec::new());
     let (mut sink, mut stream) = framed_socket.split();
-    sink.send(WELCOME_MSG.to_owned()).await.unwrap();
 
-    if let Some(name) = stream.try_next().await.unwrap() {
-        {
-            let mut server_data = server_data.lock().unwrap();
-            if server_data.contains(&name) {
-                // Disallow duplicate names
-                return;
-            }
+    sink.send(WELCOME_MSG.to_owned()).await?;
 
-            server_data.insert(name.clone());
-        }
-
-        client_state.name = Some(name.clone());
-        client_state.sender.send(Message::Join(name)).unwrap();
-    }
+    save_client_name(&mut stream, &server_data, &mut client_state).await?;
 
     loop {
         tokio::select! {
@@ -85,7 +78,11 @@ async fn handle_client(socket: TcpStream, chat_tx: Sender<Message>, server_data:
                                 let a = format!("* {} has entered the room", name);
                                 sink.send(a).await.unwrap();
                             } else {
-                                // list
+                                // {
+                                //     let server_data = server_data.lock().unwrap();
+                                //     let a = format!("* The room contains: {}", server_data.iter().join(","));
+                                //     sink.send(a).await.unwrap();
+                                // }
                             }
                         }
                     },
@@ -97,7 +94,7 @@ async fn handle_client(socket: TcpStream, chat_tx: Sender<Message>, server_data:
                             }
                         }
                     }
-                    Message::Message { name, body } => {
+                    Message::Text { name, body } => {
                         if let Some(client_name) = &client_state.name {
                             if client_name != &name {
                                 let a = format!("[{}] {}", name, body);
@@ -110,16 +107,47 @@ async fn handle_client(socket: TcpStream, chat_tx: Sender<Message>, server_data:
             Ok(val) = stream.try_next() => {
                 if let Some(msg) = val {
                     if let Some(name) = &client_state.name {
-                        client_state.sender.send(Message::Message {name: name.clone(), body: msg}).unwrap();
+                        client_state.sender.send(Message::Text {name: name.clone(), body: msg}).unwrap();
                     }
                 } else {
                     if let Some(name) = &client_state.name {
                         client_state.sender.send(Message::Leave(name.clone())).unwrap();
                     }
 
-                    return;
+                    return Ok(());
                 }
             }
         }
+    }
+}
+
+async fn save_client_name(
+    stream: &mut stream::SplitStream<Framed<TcpStream, LinesCodec>>,
+    server_data: &ServerData,
+    client_state: &mut Client,
+) -> Result<(), Box<dyn Error>> {
+    stream.try_next().await?.map()
+    if let Some(name) = stream.try_next().await? {
+        {
+            let mut server_data = match server_data.lock() {
+                Ok(d) => d,
+                Err(e) => todo!(),
+            };
+
+            if server_data.contains(&name) {
+                // Disallow duplicate names
+                return Ok(());
+            }
+
+            server_data.insert(name.clone());
+        }
+
+        client_state.name = Some(name.clone());
+        client_state.sender.send(Message::Join(name))?;
+
+        return Ok(());
+    } else {
+        println!("dc");
+        return Ok(()); // todo fix
     }
 }
