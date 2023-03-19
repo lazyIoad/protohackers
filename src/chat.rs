@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     error::Error,
+    io::{self, ErrorKind},
     sync::{Arc, Mutex},
 };
 
@@ -110,7 +111,10 @@ async fn save_client_name(
 
             if server_data.contains(&name) {
                 // Disallow duplicate names
-                todo!("should disallow")
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "duplicate name",
+                )));
             }
 
             server_data.insert(name.clone());
@@ -121,8 +125,10 @@ async fn save_client_name(
 
         return Ok(());
     } else {
-        todo!("what to do here?");
-        // return Ok(()); // todo fix
+        Err(Box::new(io::Error::new(
+            ErrorKind::ConnectionReset,
+            "client disconnected before name was given",
+        )))
     }
 }
 
