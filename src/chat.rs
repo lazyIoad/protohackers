@@ -4,8 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use futures::prelude::*;
-use futures::StreamExt;
+use futures::{prelude::*, stream::SplitStream};
+use futures::{stream::SplitSink, StreamExt};
 use itertools::Itertools;
 use tokio::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -27,8 +27,10 @@ enum Message {
 #[derive(Debug)]
 struct Client {
     name: Option<String>,
-    sender: Sender<Message>,
-    receiver: Receiver<Message>,
+    reader: SplitStream<Framed<TcpStream, LinesCodec>>,
+    writer: SplitSink<Framed<TcpStream, LinesCodec>, String>,
+    server_sender: Sender<Message>,
+    server_receiver: Receiver<Message>,
 }
 
 pub async fn start_server(address: impl ToSocketAddrs) -> Result<(), Box<dyn Error>> {
@@ -54,64 +56,37 @@ async fn handle_client(
     server_data: ServerData,
 ) -> Result<(), Box<dyn Error>> {
     let receiver = chat_tx.subscribe();
+    let framed_socket = Framed::new(socket, LinesCodec::new());
+    let (client_writer, client_reader) = framed_socket.split();
 
     let mut client_state = Client {
         name: None,
-        sender: chat_tx,
-        receiver,
+        reader: client_reader,
+        writer: client_writer,
+        server_sender: chat_tx,
+        server_receiver: receiver,
     };
 
-    let framed_socket = Framed::new(socket, LinesCodec::new());
-    let (mut sink, mut stream) = framed_socket.split();
+    client_state.writer.send(WELCOME_MSG.to_owned()).await?;
 
-    sink.send(WELCOME_MSG.to_owned()).await?;
-
-    save_client_name(&mut stream, &server_data, &mut client_state).await?;
+    save_client_name(&server_data, &mut client_state).await?;
 
     loop {
         tokio::select! {
-            Ok(val) = client_state.receiver.recv() => {
-               match val {
-                    Message::Join(name) => {
-                        if let Some(client_name) = &client_state.name {
-                            if client_name != &name {
-                                let a = format!("* {} has entered the room", name);
-                                sink.send(a).await.unwrap();
-                            } else {
-                                // {
-                                //     let server_data = server_data.lock().unwrap();
-                                //     let a = format!("* The room contains: {}", server_data.iter().join(","));
-                                //     sink.send(a).await.unwrap();
-                                // }
-                            }
-                        }
-                    },
-                    Message::Leave(name) => {
-                        if let Some(client_name) = &client_state.name {
-                            if client_name != &name {
-                                let a = format!("* {} has left the room", name);
-                                sink.send(a).await.unwrap();
-                            }
-                        }
-                    }
-                    Message::Text { name, body } => {
-                        if let Some(client_name) = &client_state.name {
-                            if client_name != &name {
-                                let a = format!("[{}] {}", name, body);
-                                sink.send(a).await.unwrap();
-                            }
-                        }
-                    },
-                }
+            // Receive an event from another client
+            Ok(msg) = client_state.server_receiver.recv() => {
+                handle_client_message(&msg, &mut client_state, &server_data).await;
             }
-            Ok(val) = stream.try_next() => {
+            Ok(val) = client_state.reader.try_next() => {
                 if let Some(msg) = val {
                     if let Some(name) = &client_state.name {
-                        client_state.sender.send(Message::Text {name: name.clone(), body: msg}).unwrap();
+                        client_state.server_sender.send(Message::Text {name: name.clone(), body: msg}).unwrap();
                     }
                 } else {
                     if let Some(name) = &client_state.name {
-                        client_state.sender.send(Message::Leave(name.clone())).unwrap();
+                        client_state.server_sender.send(Message::Leave(name.clone())).unwrap();
+                        let mut server_data = server_data.lock().unwrap();
+                        server_data.remove(name);
                     }
 
                     return Ok(());
@@ -122,12 +97,11 @@ async fn handle_client(
 }
 
 async fn save_client_name(
-    stream: &mut stream::SplitStream<Framed<TcpStream, LinesCodec>>,
     server_data: &ServerData,
     client_state: &mut Client,
 ) -> Result<(), Box<dyn Error>> {
-    stream.try_next().await?.map()
-    if let Some(name) = stream.try_next().await? {
+    // stream.try_next().await?.map()
+    if let Some(name) = client_state.reader.try_next().await? {
         {
             let mut server_data = match server_data.lock() {
                 Ok(d) => d,
@@ -136,18 +110,57 @@ async fn save_client_name(
 
             if server_data.contains(&name) {
                 // Disallow duplicate names
-                return Ok(());
+                todo!("should disallow")
             }
 
             server_data.insert(name.clone());
         }
 
         client_state.name = Some(name.clone());
-        client_state.sender.send(Message::Join(name))?;
+        client_state.server_sender.send(Message::Join(name))?;
 
         return Ok(());
     } else {
-        println!("dc");
-        return Ok(()); // todo fix
+        todo!("what to do here?");
+        // return Ok(()); // todo fix
+    }
+}
+
+async fn handle_client_message(msg: &Message, state: &mut Client, server_data: &ServerData) {
+    match msg {
+        Message::Join(name) => {
+            if let Some(client_name) = &state.name {
+                if client_name != name {
+                    let a = format!("* {} has entered the room", name);
+                    state.writer.send(a).await.unwrap();
+                } else {
+                    let a: String;
+                    {
+                        let server_data = server_data.lock().unwrap();
+                        a = format!(
+                            "* The room contains: {}",
+                            Itertools::join(&mut server_data.iter(), ", ")
+                        );
+                    }
+                    state.writer.send(a).await.unwrap();
+                }
+            }
+        }
+        Message::Leave(name) => {
+            if let Some(client_name) = &state.name {
+                if client_name != name {
+                    let a = format!("* {} has left the room", name);
+                    state.writer.send(a).await.unwrap();
+                }
+            }
+        }
+        Message::Text { name, body } => {
+            if let Some(client_name) = &state.name {
+                if client_name != name {
+                    let a = format!("[{}] {}", name, body);
+                    state.writer.send(a).await.unwrap();
+                }
+            }
+        }
     }
 }
