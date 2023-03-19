@@ -143,10 +143,16 @@ async fn handle_client_message(msg: &Message, state: &mut Client, server_data: &
                     let a: String;
                     {
                         let server_data = server_data.lock().unwrap();
-                        a = format!(
-                            "* The room contains: {}",
-                            Itertools::join(&mut server_data.iter(), ", ")
+                        let mut names = Itertools::join(
+                            &mut server_data.iter().filter(|name| name != &client_name),
+                            ", ",
                         );
+
+                        if names.is_empty() {
+                            names = String::from("just you!");
+                        }
+
+                        a = format!("* The room contains: {}", names);
                     }
                     state.writer.send(a).await.unwrap();
                 }
