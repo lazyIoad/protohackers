@@ -72,12 +72,18 @@ async fn handle_client(
 
     save_client_name(&server_data, &mut client_state).await?;
 
+    send_presence_msg(&server_data, &mut client_state).await;
+
+    client_state.server_receiver = client_state.server_receiver.resubscribe();
+
     loop {
         tokio::select! {
             // Receive an event from another client
             Ok(msg) = client_state.server_receiver.recv() => {
                 handle_client_message(&msg, &mut client_state, &server_data).await;
             }
+
+            // Receive a message from this client
             Ok(val) = client_state.reader.try_next() => {
                 if let Some(msg) = val {
                     if let Some(name) = &client_state.name {
@@ -132,30 +138,35 @@ async fn save_client_name(
     }
 }
 
+async fn send_presence_msg(server_data: &ServerData, state: &mut Client) {
+    let a: String;
+    {
+        let server_data = server_data.lock().unwrap();
+        let mut names = Itertools::join(
+            &mut server_data.iter().filter(|name| {
+                state
+                    .name
+                    .as_ref()
+                    .map_or(false, |client_name| *name != client_name)
+            }),
+            ", ",
+        );
+
+        if names.is_empty() {
+            names = String::from("just you!");
+        }
+
+        a = format!("* The room contains: {}", names);
+    }
+    state.writer.send(a).await.unwrap();
+}
+
 async fn handle_client_message(msg: &Message, state: &mut Client, server_data: &ServerData) {
     match msg {
         Message::Join(name) => {
             if let Some(client_name) = &state.name {
-                if client_name != name {
-                    let a = format!("* {} has entered the room", name);
-                    state.writer.send(a).await.unwrap();
-                } else {
-                    let a: String;
-                    {
-                        let server_data = server_data.lock().unwrap();
-                        let mut names = Itertools::join(
-                            &mut server_data.iter().filter(|name| name != &client_name),
-                            ", ",
-                        );
-
-                        if names.is_empty() {
-                            names = String::from("just you!");
-                        }
-
-                        a = format!("* The room contains: {}", names);
-                    }
-                    state.writer.send(a).await.unwrap();
-                }
+                let a = format!("* {} has entered the room", name);
+                state.writer.send(a).await.unwrap();
             }
         }
         Message::Leave(name) => {
