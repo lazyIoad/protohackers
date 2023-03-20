@@ -110,6 +110,13 @@ async fn save_client_name(
     // stream.try_next().await?.map()
     if let Some(name) = client_state.reader.try_next().await? {
         {
+            if name.is_empty() || !name.chars().all(char::is_alphanumeric) {
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "name must be non-empty and alphanumeric",
+                )));
+            }
+
             let mut server_data = match server_data.lock() {
                 Ok(d) => d,
                 Err(e) => todo!(),
